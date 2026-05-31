@@ -122,7 +122,44 @@ def events(property_id: str):
 
 @app.get("/bookings")
 def bookings(property_id: str):
-    return {"property_id": property_id, "items": []}
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            """
+            SELECT *
+            FROM bookings
+            WHERE property_id = %s
+            ORDER BY checkin DESC
+            """,
+            (property_id,)
+        )
+
+        rows = cur.fetchall()
+
+        items = []
+
+        for row in rows:
+            items.append({
+                "booking_id": row[0],
+                "property_id": row[1],
+                "room_type": row[2],
+                "checkin": str(row[3]),
+                "checkout": str(row[4]),
+                "status": row[5],
+                "amount_inr": row[6],
+                "source": row[7]
+            })
+
+        return {
+            "property_id": property_id,
+            "items": items
+        }
+
+    finally:
+        cur.close()
+        conn.close()
 
 
 # ---------- Part B: Data Assistant ----------
