@@ -13,6 +13,11 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 INTENTS = ["booking", "cancellation", "faq", "complaint", "wakeup"]
 CONFIDENCE_THRESHOLD = 0.6
 
+class PropertyCreate(BaseModel):
+    property_id: str
+    name: str
+    city: str
+    total_rooms: int
 
 class Message(BaseModel):
     property_id: str
@@ -53,9 +58,46 @@ def health():
 
 # ---------- Part A: orchestration ----------
 @app.post("/property")
-def create_property(config: dict):
-    """Persist tenant + property_config, RLS-scoped. TODO."""
-    return {"stored": False}
+def create_property(config: PropertyCreate):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            """
+            INSERT INTO properties (
+                property_id,
+                name,
+                city,
+                total_rooms
+            )
+            VALUES (%s, %s, %s, %s)
+            """,
+            (
+                config.property_id,
+                config.name,
+                config.city,
+                config.total_rooms
+            )
+        )
+
+        conn.commit()
+
+        return {
+            "stored": True,
+            "property_id": config.property_id
+        }
+
+    except Exception as e:
+        conn.rollback()
+        return {
+            "stored": False,
+            "error": str(e)
+        }
+
+    finally:
+        cur.close()
+        conn.close()
 
 
 def classify(text: str, cfg: dict) -> tuple[str, float]:
