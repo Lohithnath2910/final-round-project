@@ -5,6 +5,7 @@ TS/Deno equivalent is fine — mirror these contracts. The grade is in the guard
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from app.db import get_conn
 
 app = FastAPI(title="Engineering Capstone")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -27,7 +28,27 @@ class Ask(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT 1")
+        cur.fetchone()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "ok": True,
+            "database": True
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "database": False,
+            "error": str(e)
+        }
 
 
 # ---------- Part A: orchestration ----------
