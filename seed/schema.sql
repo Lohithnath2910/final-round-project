@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS bookings (
 );
 
 
--- Guest messages. message_id is UNIQUE for idempotency.
 CREATE TABLE IF NOT EXISTS messages (
   message_id TEXT PRIMARY KEY,
   property_id TEXT REFERENCES properties(property_id),
@@ -42,7 +41,6 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Lifecycle feed.
 CREATE TABLE IF NOT EXISTS events (
   event_id TEXT PRIMARY KEY,
   property_id TEXT REFERENCES properties(property_id),
@@ -51,7 +49,6 @@ CREATE TABLE IF NOT EXISTS events (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Queue tracking.
 CREATE TABLE IF NOT EXISTS workflow_jobs (
   job_id TEXT PRIMARY KEY,
   property_id TEXT REFERENCES properties(property_id),
