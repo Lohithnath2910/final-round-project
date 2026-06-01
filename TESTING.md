@@ -67,3 +67,161 @@ python -m pytest backend/tests/test_hinglish_rag.py -v  # RAG coverage (4 tests)
 - **CI Gating**: Block deploys if test suite < 100%, classify P95 > 500ms, or RLS checks fail
 - **Audit Logging**: Log all cross-tenant block attempts + injection attempts for forensics
 - **Compliance**: GDPR data deletion tests, PII scrubbing in logs, tenant data isolation audits
+
+
+# TESTING
+
+## Running Tests
+
+Execute the entire test suite:
+
+```bash
+pytest -v
+```
+
+Current status:
+
+* 36 tests passing
+* 0 failures
+
+---
+
+## Test Coverage
+
+### Part A — Conversation Lifecycle
+
+Coverage:
+
+* Intent classification
+* Workflow routing
+* Human handoff
+* Ambiguous cancellation protection
+* Tenant isolation
+* Idempotency
+* Property onboarding
+* Queue creation
+* Events retrieval
+* Bookings retrieval
+
+---
+
+### Part B — Data Assistant
+
+Coverage:
+
+* NL→SQL generation
+* Revenue analytics
+* Booking analytics
+* No-show analytics
+* RAG retrieval
+* Citation generation
+* Refusal handling
+
+---
+
+### Security Coverage
+
+Verified:
+
+* Cross-tenant blocking
+* SQL injection blocking
+* DELETE blocking
+* UNION blocking
+* Unsafe SQL blocking
+
+---
+
+### Hinglish Coverage
+
+Verified:
+
+* Query normalization
+* Synonym expansion
+* FAQ retrieval
+* Citation generation
+* Refusal behavior
+
+---
+
+## End-to-End Validation
+
+### Property Creation
+
+```bash
+POST /property
+```
+
+Expected:
+
+* Property created
+* property_config stored
+
+---
+
+### Message Flow
+
+```bash
+POST /message
+```
+
+Expected:
+
+* Intent classified
+* Event generated
+* Workflow job queued
+
+---
+
+### Queue Processing
+
+Worker:
+
+```bash
+python worker.py
+```
+
+Expected:
+
+* Pending jobs claimed
+* Status updated to done
+
+---
+
+### Analytics
+
+```bash
+POST /ask
+```
+
+Expected:
+
+* Read-only SQL generated
+* Tenant-scoped answer returned
+
+---
+
+### Product Help
+
+```bash
+POST /ask
+```
+
+Expected:
+
+* KB retrieval
+* Citation returned
+
+---
+
+## Verification Checklist
+
+* [x] Tenant isolation
+* [x] RLS policies
+* [x] Idempotency
+* [x] Human handoff
+* [x] Queue processing
+* [x] Cross-tenant protection
+* [x] Injection protection
+* [x] RAG citations
+* [x] Refusal behavior
+* [x] Hinglish support

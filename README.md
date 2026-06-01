@@ -1,145 +1,715 @@
-# Engineering Capstone — Multi-Tenant Receptionist + Data Assistant + Owner Console
+# Multi-Tenant Hospitality Management Assistant
 
-A single full-stack build that mirrors the real platform end to end. Three parts share **one multi-tenant Postgres** and **one deployment**. Pitched a notch above day-to-day work — we want to see range + judgment, not just one slice.
+A multi-tenant Hospitality Management System (HMS) assistant built for the Engineering Capstone.
 
-**Final-round task. Prioritise correctness of the guards (tenant isolation, idempotency, SQL safety) over UI polish.**
+The platform combines:
 
----
+- Conversation orchestration and lifecycle management
+- Tenant-safe analytics through NL→SQL
+- Hinglish-aware Retrieval-Augmented Generation (RAG)
+- PostgreSQL Row Level Security (RLS)
+- Queue-based workflow processing
+- Multi-tenant knowledge bases
 
-## Part A — Conversation Orchestration + Lifecycle (backend)
-A service exposing:
-- `POST /property` — register a tenant + `property_config` (custom FAQs, language). Seed both from `seed/properties.json`.
-- `POST /message` `{property_id, guest_id, message_id, text}`:
-  1. **2-stage intent classify** (fast rules → LLM fallback): `booking · cancellation · faq · complaint · wakeup`.
-  2. Route via a **WorkflowRegistry** (one workflow per intent).
-  3. Fire side-effects **through a queue/event** (not inline) — e.g. `booking` → create a booking row + enqueue a confirmation event.
-- `GET /events?property_id=` and `GET /bookings?property_id=` — tenant-scoped.
-
-**Must:** tenant isolation via **RLS** (not app-code) · **idempotent** on `message_id` · **false-positive guard** (no auto-cancel on low confidence — confirm) · **human-handoff** below a confidence threshold · report classify **P95**.
-
-**Bonus (resilience):** the `booking` workflow pushes availability to the **mock OTA** (`python mock_ota/mock_ota_server.py` → `:9000`, paginated, random 429/500, idempotent on `push_id`). Survive failures with retry/backoff; make the push idempotent.
-
-## Part B — Data Assistant: Hinglish NL→SQL + RAG (backend)
-- `POST /ask` `{property_id, question}`:
-  - Data question → **NL→SQL** in a **read-only, tenant-scoped sandbox** → `{answer, sql, rows}`.
-  - Product-help question → **RAG** over `kb/` with a **citation**.
-- HMS data is seeded by `seed/schema.sql` + `seed/data.sql` (2 tenants). Sample qs in `seed/questions.txt`.
-
-**Must:** tenant scope **enforced in your code** (never trust the LLM to add it) · block any non-SELECT / multi-statement / cross-tenant read · **schema-grounded** (no hallucinated columns; unanswerable → refuse, don't fabricate) · RAG answers cite the KB file.
-
-## Part C — Owner Console (frontend)
-A React + TS SPA (mobile-first, Hinglish-friendly) that talks to A and B:
-- A **lifecycle feed** — recent messages/bookings/events for the logged property (from `/events`, `/bookings`), updating live-ish (realtime or poll).
-- An **Ask the Assistant** box — type a question, show the answer + (for data) the SQL it ran.
-- Graceful **loading / empty / error** states.
-
-**Must:** mobile-first, no business logic in the frontend, sane states. Polish is secondary to it working end-to-end against your deployed backend.
-
-## Part D — QA & Testing (this matters — we read it closely)
-We want to see how you *think about correctness*, not just that the happy path runs.
-- Write a **runnable e2e test suite** (`pytest`, `vitest`/`jest`+supertest, Playwright — your call) that exercises the critical paths **and the guards**, against your API (local or deployed):
-  - intent classification on a few messages (incl. an ambiguous one that must **not** auto-cancel),
-  - **tenant isolation** — property A cannot read/write B (assert it),
-  - **idempotency** — replaying a `message_id` produces exactly one side-effect,
-  - **NL→SQL safety** — a cross-tenant question and a destructive/injection attempt are **blocked**,
-  - RAG returns a citation; an unanswerable question is refused (not fabricated),
-  - a console smoke test (loads, calls backend, renders a state).
-- Write **`TESTING.md`** — your test strategy: what you chose to test and **why**, the unit/integration/e2e split, the negative + adversarial cases you prioritised, what you'd add with more time, and how you'd structure QA for a multi-tenant platform going to 100 real hotels.
-- Include **negative and adversarial cases**, not just happy path. `README` must say how to run the tests in one command.
+The primary focus of the project is correctness, tenant isolation, idempotency, SQL safety, and reproducibility.
 
 ---
 
-## ⚠️ How we grade — we will run YOUR live endpoint with inputs you have NOT seen
-The seed data is for you to build against. At grading we hit your **deployed API** with a **held-out set** of our own messages and questions — including trickier Hinglish, mixed-intent, ambiguous, cross-tenant, and injection cases. Hard-coding to the seed will fail. Build for the general case; your own tests should reflect that.
+# Architecture Overview
+
+```text
+Guest Message
+      │
+      ▼
+POST /message
+      │
+      ▼
+Intent Classification
+      │
+      ▼
+Workflow Registry
+      │
+      ▼
+workflow_jobs Queue
+      │
+      ▼
+worker.py
+      │
+      ▼
+Events / Side Effects
+
+
+Owner Question
+      │
+      ▼
+POST /ask
+      │
+      ├── Data Question
+      │      ▼
+      │   NL→SQL
+      │      ▼
+      │   PostgreSQL
+      │
+      └── Product Question
+             ▼
+             RAG
+             ▼
+      property_config
+             ▼
+         Tenant KB
+             ▼
+        platform KB
+```
 
 ---
 
-## Deliver
-1. Public GitHub repo (real commit history — incremental, not one dump).
-2. **Live URLs** — deployed backend + deployed console (both reachable).
-3. `RESULTS.md` — intent accuracy (15 seed msgs) · classify P95 · tenant-isolation proof · idempotency proof · a low-confidence handoff · 3 NL→SQL examples (question→SQL→answer) · one **blocked** cross-tenant/injection attempt · one RAG answer with citation · (bonus) OTA calls failed-and-recovered count · console screenshots/Loom.
-4. **`TESTING.md` + a runnable e2e test suite** (one-command run) — see Part D.
-5. `AI_LOG.md` — tools, prompts, where AI was wrong + how you caught it, key design decisions.
+# Features
 
-## AI traps (each silently fails on real data)
-- Side-effects inline instead of on a queue.
-- Tenancy via app-code `WHERE` instead of RLS.
-- No idempotency → double-fires on replay.
-- Auto-cancel on an ambiguous message.
-- Executing LLM SQL without forcing tenant scope / read-only → cross-tenant or destructive.
-- Hallucinated columns returned as fact.
-- Desktop-only console with no loading/error states.
+## Part A — Conversation Orchestration & Lifecycle
 
-## Rules
-- **AI tools allowed + encouraged** — judgment is what we score; log it honestly.
-- **Stack:** TypeScript preferred (Deno/Node) for backend; React+TS for console. Python/FastAPI backend accepted. Supabase covers Postgres+RLS+realtime if you want it.
-- **Timebox: 3 days** (it's broad on purpose). Reply in the group when you start.
-- **Follow-up:** 45-min live — modify code on the spot + explain a guard.
+### Property Onboarding
 
-Scope tip: a correct, deployed A + B with a thin working C beats a pretty C with leaky guards. Build the guards first.
+```http
+POST /property
+```
+
+Registers a new tenant property and stores:
+
+- property metadata
+- language preferences
+- custom FAQs
+- property-specific configuration
+
+Property configuration is stored as JSONB and used by the assistant for tenant-specific responses.
 
 ---
 
-## Quick Start — Backend Setup & Test
+### Guest Message Processing
 
-### Prerequisites
-- **Python 3.11+** with `venv`
-- **PostgreSQL 13+** with RLS support (local instance or cloud)
-- **.env** configured with `DATABASE_URL` (e.g., `postgresql://user:pass@localhost/hms_capstone`)
-
-### 1. Activate Virtual Env & Install Dependencies
-```bash
-cd backend
-source venv/Scripts/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
+```http
+POST /message
 ```
 
-### 2. Initialize Database with RLS
-The schema in `seed/schema.sql` defines **RLS policies** that enforce tenant isolation. To seed the database **with RLS enabled**:
+Input:
 
-```bash
-# From root directory:
-psql -h localhost -U postgres -d hms_capstone -f seed/schema.sql
-psql -h localhost -U postgres -d hms_capstone -f seed/data.sql
-# RLS-safe seeding (sets tenant context per insert):
-psql -h localhost -U postgres -d hms_capstone -f seed/seed_with_rls.sql
+```json
+{
+  "property_id": "hotel_a",
+  "guest_id": "guest_001",
+  "message_id": "msg_123",
+  "text": "I'd like to book a room"
+}
 ```
 
-Or use your `.env` `DATABASE_URL`:
-```bash
-psql "$DATABASE_URL" -f seed/schema.sql
-psql "$DATABASE_URL" -f seed/data.sql
-psql "$DATABASE_URL" -f seed/seed_with_rls.sql
+Supported intents:
+
+- booking
+- cancellation
+- faq
+- complaint
+- wakeup
+
+Workflow:
+
+```text
+Message
+→ classify
+→ route
+→ create event
+→ enqueue workflow job
+→ worker processes asynchronously
 ```
-
-### 3. Start the Backend Server
-```bash
-cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Server runs at `http://localhost:8000/`. Docs at `http://localhost:8000/docs`.
-
-### 4. (Optional) Start the Queue Worker
-In a separate terminal:
-```bash
-cd backend
-python worker.py
-```
-
-The worker claims pending jobs from `workflow_jobs` table and transitions them to `in_progress` → `done`/`failed`. Uses atomic `FOR UPDATE SKIP LOCKED` (demonstrates concurrency safety).
-
-### 5. Run the Test Suite
-In the `backend/` directory with venv active:
-```bash
-python -m pytest -v
-```
-
-**All 36 tests pass:**
-- **Part A tests** (19): message classification, intent routing, tenant isolation, idempotency, cross-tenant blocking
-- **Part B tests** (13): NL→SQL analytics, RAG with citations, injection & destructive SQL blocking
-- **Hinglish RAG tests** (4): Hinglish normalization, synonyms, token-overlap scoring, refusal on unknowns
-
-For detailed results, see `TESTING.md` below.
 
 ---
+
+### Intent Classification
+
+Current implementation uses:
+
+- deterministic rule-based classification
+- confidence scoring
+- human handoff for uncertain requests
+- cancellation confirmation protection
+
+Supported classifications:
+
+| Intent | Example |
+|----------|----------|
+| booking | "I'd like to book a room" |
+| cancellation | "Cancel my booking" |
+| faq | "What's the wifi password?" |
+| complaint | "The room is dirty" |
+| wakeup | "Wake me up at 6am" |
+
+Low-confidence requests are routed to a human workflow.
+
+---
+
+### Human Handoff
+
+Requests below the configured confidence threshold are not automatically executed.
+
+Example:
+
+```text
+maybe cancel my booking
+```
+
+Result:
+
+```json
+{
+  "status": "confirmation_required"
+}
+```
+
+This prevents accidental cancellations.
+
+---
+
+### False-Positive Protection
+
+Cancellation workflows require higher confidence before execution.
+
+Ambiguous cancellation requests:
+
+```text
+maybe cancel
+thinking of cancelling
+might cancel later
+```
+
+are routed to human review instead of automatic execution.
+
+---
+
+### Queue-Based Processing
+
+Workflow side effects are processed asynchronously.
+
+Architecture:
+
+```text
+POST /message
+      │
+      ▼
+workflow_jobs
+      │
+      ▼
+worker.py
+      │
+      ▼
+done
+```
+
+Features:
+
+- PostgreSQL-backed queue
+- Atomic job claiming
+- Background worker processing
+- Durable storage
+- Retry-ready architecture
+
+Queue implementation:
+
+```sql
+FOR UPDATE SKIP LOCKED
+```
+
+ensures a job can only be claimed by one worker.
+
+Job states:
+
+- pending
+- in_progress
+- done
+- failed
+
+---
+
+### Idempotency
+
+Messages are idempotent using:
+
+```sql
+ON CONFLICT (message_id)
+DO NOTHING
+```
+
+Benefits:
+
+- Duplicate requests do not create duplicate side effects
+- Safe retries
+- Replay protection
+
+---
+
+### Lifecycle Events
+
+```http
+GET /events
+```
+
+Returns tenant-scoped lifecycle activity.
+
+Examples:
+
+- booking_requested
+- cancellation_requested
+- faq_received
+- complaint_received
+- wakeup_requested
+- needs_human
+
+---
+
+### Bookings API
+
+```http
+GET /bookings
+```
+
+Returns bookings for the currently selected tenant only.
+
+---
+
+## Part B — Data Assistant
+
+### Natural Language Analytics
+
+```http
+POST /ask
+```
+
+Example questions:
+
+```text
+How many bookings do I have?
+
+What's my total revenue?
+
+How much revenue came from MMT?
+
+How many no-shows do I have?
+
+Which room type earns the most revenue?
+```
+
+---
+
+### NL→SQL
+
+Questions are converted into safe, read-only SQL.
+
+Properties:
+
+- tenant-scoped
+- parameterized
+- schema-grounded
+- deterministic
+- read-only
+
+No generated SQL is executed without validation.
+
+---
+
+### SQL Safety
+
+The assistant blocks:
+
+- DELETE
+- UPDATE
+- DROP
+- ALTER
+- UNION
+- Multi-statement execution
+
+Only safe SELECT queries are permitted.
+
+---
+
+### Cross-Tenant Protection
+
+Example:
+
+Tenant:
+
+```text
+hotel_b
+```
+
+Question:
+
+```text
+How many bookings does Hotel Surya have?
+```
+
+Response:
+
+```json
+{
+  "detail": "Cross-tenant access blocked"
+}
+```
+
+Cross-property access is rejected before query execution.
+
+---
+
+### Example Analytics Queries
+
+#### Booking Count
+
+Question:
+
+```text
+How many bookings do I have?
+```
+
+SQL:
+
+```sql
+SELECT COUNT(*)
+FROM bookings
+WHERE property_id = %s
+```
+
+---
+
+#### Revenue
+
+Question:
+
+```text
+What is my total revenue?
+```
+
+SQL:
+
+```sql
+SELECT COALESCE(SUM(amount_inr), 0)
+FROM bookings
+WHERE property_id = %s
+```
+
+---
+
+#### MMT Revenue
+
+Question:
+
+```text
+What's my MMT revenue?
+```
+
+SQL:
+
+```sql
+SELECT COALESCE(SUM(amount_inr), 0)
+FROM bookings
+WHERE property_id = %s
+AND source = 'mmt'
+```
+
+---
+
+### Hinglish-Aware RAG
+
+The assistant supports mixed Hindi-English queries.
+
+Examples:
+
+```text
+wifi ka password kya hai
+
+parking hai kya
+
+deposit kitna hai
+
+rates kaise update karu
+
+review ka reply kaise karu
+```
+
+---
+
+### Retrieval Pipeline
+
+RAG retrieval follows a strict priority order:
+
+```text
+property_config
+        │
+        ▼
+Tenant Knowledge Base
+        │
+        ▼
+Platform Knowledge Base
+        │
+        ▼
+Refusal
+```
+
+Property-specific information always overrides platform-wide information.
+
+---
+
+### Knowledge Base Structure
+
+```text
+kb/
+├── hotel_a.txt
+├── hotel_b.txt
+└── platform.txt
+```
+
+---
+
+### Retrieval Strategy
+
+Implementation uses:
+
+- normalization
+- synonym expansion
+- token overlap scoring
+- confidence thresholds
+- paragraph chunking
+
+No embeddings are used.
+
+No vector database is used.
+
+No external retrieval service is used.
+
+---
+
+### Citations
+
+Every RAG answer includes a source citation.
+
+Example:
+
+```json
+{
+  "answer": "Free WiFi is available throughout the property.",
+  "citation": "hotel_a.txt"
+}
+```
+
+---
+
+### Refusal Behavior
+
+Unknown questions are refused rather than fabricated.
+
+Example:
+
+Question:
+
+```text
+Quantum physics on Mars
+```
+
+Response:
+
+```text
+I don't have enough information to answer that.
+```
+
+---
+
+# Multi-Tenant Isolation
+
+Tenant isolation is enforced using PostgreSQL Row Level Security (RLS).
+
+Protected tables:
+
+- properties
+- rooms
+- rates
+- bookings
+- messages
+- events
+- workflow_jobs
+
+Tenant context:
+
+```sql
+SET app.current_property
+```
+
+Policy:
+
+```sql
+property_id =
+current_setting(
+    'app.current_property',
+    true
+)
+```
+
+Tenant isolation is enforced at the database layer.
+
+---
+
+# Security Guards
+
+| Guard | Implementation |
+|---------|---------|
+| Tenant isolation | PostgreSQL RLS |
+| Idempotency | ON CONFLICT(message_id) |
+| Human handoff | Confidence threshold |
+| Cancellation guard | Confirmation required |
+| Cross-tenant block | Property-name detection |
+| SQL injection block | Pattern validation |
+| Destructive SQL block | Read-only SQL enforcement |
+| RAG citation | Mandatory source citation |
+| Hallucination prevention | Refusal on low confidence |
+
+---
+
+# Performance
+
+Classification benchmark:
+
+| Metric | Value |
+|----------|---------|
+| Average | 0.03 ms |
+| P50 | 0.02 ms |
+| P95 | 0.04 ms |
+| P99 | 0.14 ms |
+| Min | 0.01 ms |
+| Max | 0.14 ms |
+
+Benchmark executed using 100 classification requests.
+
+---
+
+# Testing
+
+Current status:
+
+```text
+36 / 36 tests passing
+```
+
+Coverage includes:
+
+- Intent classification
+- Human handoff
+- Ambiguous cancellation protection
+- Tenant isolation
+- RLS validation
+- Idempotency
+- Queue creation
+- NL→SQL analytics
+- Cross-tenant blocking
+- SQL injection blocking
+- Hinglish RAG
+- Citation generation
+- Refusal behavior
+
+Run:
+
+```bash
+pytest -v
+```
+
+---
+
+# Technology Stack
+
+Backend
+
+- FastAPI
+- PostgreSQL
+- psycopg2
+
+Security
+
+- PostgreSQL Row Level Security
+- Parameterized SQL
+- Input validation
+
+Queue
+
+- workflow_jobs
+- worker.py
+- FOR UPDATE SKIP LOCKED
+
+Testing
+
+- pytest
+
+Deployment
+
+- Render
+- Supabase PostgreSQL
+
+---
+
+# Repository Structure
+
+```text
+backend/
+├── app/
+│   ├── main.py
+│   ├── assistant.py
+│   └── db.py
+│
+├── worker.py
+├── benchmark_classify.py
+├── tests/
+└── kb/
+
+seed/
+├── schema.sql
+├── data.sql
+├── seed_with_rls.sql
+└── properties.json
+
+kb/
+├── hotel_a.txt
+├── hotel_b.txt
+└── platform.txt
+```
+
+---
+
+# Current Status
+
+## Part A
+
+Completed
+
+- Property onboarding
+- Message orchestration
+- Workflow routing
+- Queue processing
+- Human handoff
+- Idempotency
+- Tenant isolation (RLS)
+- Lifecycle events
+- Tenant-scoped bookings
+
+Future enhancements:
+
+- LLM fallback classifier
+- OTA integration
+
+---
+
+## Part B
+
+Completed
+
+- Tenant-safe NL→SQL
+- Hinglish-aware RAG
+- Citation support
+- Refusal behavior
+- Cross-tenant protection
+- SQL safety enforcement
+
+---
+
+This repository currently contains a fully functional backend implementing Parts A and B of the capstone specification with a strong focus on correctness, tenant isolation, safety, and reproducibility.
