@@ -5,6 +5,8 @@ TS/Deno equivalent is fine — mirror these contracts. The grade is in the guard
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import uuid
+import json
 from app.db import get_conn
 
 app = FastAPI(title="Engineering Capstone")
@@ -63,6 +65,7 @@ def create_property(config: PropertyCreate):
     cur = conn.cursor()
 
     try:
+        # Insert property
         cur.execute(
             """
             INSERT INTO properties (
@@ -78,6 +81,28 @@ def create_property(config: PropertyCreate):
                 config.name,
                 config.city,
                 config.total_rooms
+            )
+        )
+
+        # Create lifecycle event
+        cur.execute(
+            """
+            INSERT INTO events (
+                event_id,
+                property_id,
+                event_type,
+                payload
+            )
+            VALUES (%s, %s, %s, %s)
+            """,
+            (
+                str(uuid.uuid4()),
+                config.property_id,
+                "property_created",
+                json.dumps({
+                    "name": config.name,
+                    "city": config.city
+                })
             )
         )
 
@@ -117,7 +142,41 @@ def handle_message(m: Message):
 
 @app.get("/events")
 def events(property_id: str):
-    return {"property_id": property_id, "events": []}
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            """
+            SELECT *
+            FROM events
+            WHERE property_id = %s
+            ORDER BY created_at DESC
+            """,
+            (property_id,)
+        )
+
+        rows = cur.fetchall()
+
+        items = []
+
+        for row in rows:
+            items.append({
+                "event_id": row[0],
+                "property_id": row[1],
+                "event_type": row[2],
+                "payload": row[3],
+                "created_at": str(row[4])
+            })
+
+        return {
+            "property_id": property_id,
+            "events": items
+        }
+
+    finally:
+        cur.close()
+        conn.close()
 
 
 @app.get("/bookings")
