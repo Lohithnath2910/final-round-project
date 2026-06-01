@@ -5,6 +5,8 @@ import {
   UserRound,
 } from "lucide-react";
 
+import { Card } from "@/components/ui/card";
+
 const events = [
   {
     icon: CalendarPlus,
@@ -26,8 +28,8 @@ const events = [
 
 export default function EventsFeed() {
   return (
-    <div className="glass rounded-2xl p-5">
-      <h2 className="mb-6 text-xl font-semibold">
+    <Card className="glass rounded-3xl p-6 h-fit">
+      <h2 className="mb-6 text-2xl font-semibold">
         Recent Activity
       </h2>
 
@@ -38,9 +40,9 @@ export default function EventsFeed() {
           return (
             <div
               key={event.title}
-              className="flex gap-4"
+              className="flex items-center gap-5 rounded-2xl border border-zinc-800 bg-zinc-900/20 p-5 transition hover:bg-zinc-900/40"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10">
                 <Icon
                   size={18}
                   className="text-blue-400"
@@ -48,11 +50,11 @@ export default function EventsFeed() {
               </div>
 
               <div>
-                <p className="font-medium">
+                <p className="font-medium text-white">
                   {event.title}
                 </p>
 
-                <p className="mt-1 text-sm text-zinc-500">
+                <p className="text-sm text-zinc-400">
                   Waiting for backend data
                 </p>
               </div>
@@ -60,6 +62,6 @@ export default function EventsFeed() {
           );
         })}
       </div>
-    </div>
+    </Card>
   );
 }

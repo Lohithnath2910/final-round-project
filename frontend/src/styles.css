@@ -1,26 +1,116 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/geist";
 
 :root {
-  color-scheme: dark;
+  --background: #09090b;
+  --foreground: #fafafa;
+
+  --card: #111114;
+  --card-foreground: #fafafa;
+
+  --popover: #111114;
+  --popover-foreground: #fafafa;
+
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+
+  --secondary: #18181b;
+  --secondary-foreground: #fafafa;
+
+  --muted: #18181b;
+  --muted-foreground: #a1a1aa;
+
+  --accent: #18181b;
+  --accent-foreground: #fafafa;
+
+  --border: rgba(255,255,255,0.08);
+  --input: rgba(255,255,255,0.08);
+  --ring: #2563eb;
+
+  --radius: 1rem;
 }
 
-* {
-  box-sizing: border-box;
+@theme inline {
+  --font-sans: "Geist Variable", sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  background: #09090b;
-  color: white;
-  font-family: Inter, sans-serif;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-family: "Geist Variable", sans-serif;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    min-height: 100vh;
+    margin: 0;
+
+    background:
+      radial-gradient(circle at top,
+        rgba(37,99,235,0.12),
+        transparent 40%),
+      #09090b;
+  }
 }
 
 .glass {
-  background: rgba(24, 24, 27, 0.7);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(63, 63, 70, 0.3);
+  background: rgba(16,16,20,0.88);
+  backdrop-filter: blur(24px);
+
+  border: 1px solid rgba(255,255,255,0.06);
+
   box-shadow:
-    0 0 0 1px rgba(255,255,255,0.02),
-    0 10px 40px rgba(0,0,0,0.35);
+    0 1px 0 rgba(255,255,255,0.03),
+    0 12px 40px rgba(0,0,0,0.45);
+}
+
+[data-slot="card"] {
+  background: rgba(16,16,20,0.88);
+  border-color: rgba(255,255,255,0.06);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
 }

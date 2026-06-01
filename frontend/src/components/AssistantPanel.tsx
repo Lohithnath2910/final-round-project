@@ -1,68 +1,46 @@
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Card } from "@/components/ui/card";
+
 export default function AssistantPanel() {
   return (
-    <div className="glass rounded-2xl p-5">
-      <h2 className="mb-4 text-xl font-semibold">
+    <Card className="glass rounded-3xl p-6 h-fit">
+      <h2 className="mb-5 text-2xl font-semibold">
         Ask Assistant
       </h2>
 
-      <textarea
-        rows={2}
+      <Textarea
+        rows={3}
         placeholder="How many bookings do I have today?"
-        className="
-          w-full
-          rounded-2xl
-          border
-          border-zinc-700
-          bg-zinc-950
-          p-4
-          outline-none
-          transition
-          focus:border-blue-500
-          focus:ring-2
-          focus:ring-blue-500/20
-        "
+        className="bg-zinc-900"
       />
 
-      <button
-        className="
-          mt-3
-          w-full
-          rounded-2xl
-          bg-blue-600
-          py-3
-          font-medium
-          transition
-          hover:bg-blue-500
-        "
-      >
+      <Button className="mt-4 w-full h-11">
         Ask
-      </button>
+      </Button>
 
-      <div className="mt-5 space-y-4">
-        <div className="rounded-2xl bg-zinc-950 p-4">
-          <p className="mb-2 text-xs uppercase tracking-wider text-zinc-500">
-            Answer
+      <div className="mt-6 space-y-4">
+        <Card className="border-zinc-800 bg-zinc-900/50 p-5">
+          <p className="mb-3 text-xs uppercase tracking-wider text-zinc-500">
+            Assistant Response
           </p>
 
-          <div className="py-6 text-center text-zinc-500">
-            💬
-            <br />
-            <br />
+          <div className="flex min-h-[120px] items-center justify-center text-center text-zinc-500">
             Ask a question about bookings,
             occupancy, revenue or operations.
           </div>
-        </div>
+        </Card>
 
-        <div className="rounded-2xl border border-zinc-800 bg-black/60 p-4">
-          <p className="mb-2 text-xs uppercase tracking-wider text-zinc-500">
+        <Card className="border-zinc-800 bg-zinc-900/50 p-5">
+          <p className="mb-3 text-xs uppercase tracking-wider text-zinc-500">
             SQL Executed
           </p>
 
           <code className="font-mono text-sm text-zinc-400">
             Waiting for query...
           </code>
-        </div>
+        </Card>
       </div>
-    </div>
+    </Card>
   );
 }

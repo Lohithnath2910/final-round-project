@@ -1,3 +1,5 @@
+import { Card, CardContent } from "@/components/ui/card";
+
 const stats = [
   { value: "--", label: "Bookings" },
   { value: "--", label: "Pending" },
@@ -7,30 +9,22 @@ const stats = [
 
 export default function StatsBar() {
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+    <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
       {stats.map((item) => (
-        <div
+        <Card
           key={item.label}
-          className="
-            glass
-            relative
-            rounded-2xl
-            p-5
-            transition-all
-            duration-300
-            hover:-translate-y-1
-          "
+          className="glass rounded-3xl border-zinc-800"
         >
-          <div className="absolute right-4 top-4 h-2 w-2 rounded-full bg-blue-500" />
+          <CardContent className="p-5">
+            <div className="text-3xl font-bold text-white">
+              {item.value}
+            </div>
 
-          <div className="text-4xl font-bold">
-            {item.value}
-          </div>
-
-          <div className="mt-2 text-sm text-zinc-500">
-            {item.label}
-          </div>
-        </div>
+            <div className="mt-2 text-sm text-zinc-500">
+              {item.label}
+            </div>
+          </CardContent>
+        </Card>
       ))}
     </div>
   );
