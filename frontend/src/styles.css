@@ -4,14 +4,23 @@
   color-scheme: dark;
 }
 
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
   background: #09090b;
-  color: #fafafa;
+  color: white;
   font-family: Inter, sans-serif;
 }
 
-* {
-  box-sizing: border-box;
+.glass {
+  background: rgba(24, 24, 27, 0.7);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(63, 63, 70, 0.3);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.02),
+    0 10px 40px rgba(0,0,0,0.35);
 }
