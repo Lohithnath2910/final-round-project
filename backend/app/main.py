@@ -557,7 +557,8 @@ def ask(req: Ask):
                 "answer": rag["answer"],
                 "sql": None,
                 "rows": [],
-                "citation": rag["source"]
+                "citation": rag.get("citation", rag.get("source")),
+                "confidence": rag.get("confidence")
             }
 
         return {

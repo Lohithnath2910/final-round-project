@@ -4,6 +4,8 @@ import re
 from app.db import get_conn
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+KB_DIR = os.path.join(BACKEND_DIR, "kb")
 SEED_PROPERTIES_PATH = os.path.join(ROOT_DIR, "seed", "properties.json")
 _SEED_PROPERTIES_CACHE = None
 
@@ -66,18 +68,235 @@ STOPWORDS = {
     "who",
     "why",
     "with",
+    "ka",
+    "ke",
+    "ki",
+    "hai",
+    "hain",
+    "ho",
+    "kya",
+    "kab",
+    "kaise",
+    "karu",
+    "karna",
+    "kar",
+    "mein",
+    "me",
+    "se",
+    "par",
+    "pe",
+    "mujhe",
+    "mera",
+    "meri",
+    "mere",
     "work",
     "work?",
 }
+
+SYNONYMS = {
+    "wifi": [
+        "wifi",
+        "internet",
+        "net",
+    ],
+    "parking": [
+        "parking",
+        "car parking",
+        "vehicle parking",
+    ],
+    "checkout": [
+        "checkout",
+        "check out",
+        "room vacate",
+    ],
+    "review": [
+        "review",
+        "rating",
+        "feedback",
+    ],
+    "rate": [
+        "rate",
+        "price",
+        "pricing",
+        "room rate",
+    ],
+    "food": [
+        "food",
+        "mess",
+        "meal",
+    ],
+}
+
+QUERY_NORMALIZATIONS = {
+    "wifi password": [
+        "wifi ka password",
+        "internet password",
+        "net password",
+    ],
+    "parking": [
+        "car parking",
+        "vehicle parking",
+    ],
+    "checkout": [
+        "checkout kab hai",
+        "check out time",
+        "room kab khali karna hai",
+    ],
+    "rate update": [
+        "rate kaise change karu",
+        "price update",
+        "room rate update",
+    ],
+    "review response": [
+        "review ka reply kaise karu",
+        "ota review response",
+    ],
+}
+
+FAQ_CONFIDENCE_THRESHOLD = 0.35
+KB_CONFIDENCE_THRESHOLD = 0.30
+PLATFORM_CONFIDENCE_THRESHOLD = 0.30
+
+SQL_BLOCKED_PATTERNS = [
+    "drop",
+    "delete",
+    "update",
+    "insert",
+    "alter",
+    ";",
+    "--",
+    "union",
+    "information_schema",
+    "pg_catalog",
+]
+
+QUESTION_BLOCKED_PATTERNS = [
+    "drop",
+    "delete",
+    "insert",
+    "alter",
+    ";",
+    "--",
+    "union",
+    "information_schema",
+    "pg_catalog",
+]
 
 
 def normalize_text(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
+def _replace_phrase(text: str, phrase: str, replacement: str) -> str:
+    pattern = r"\b" + re.escape(phrase) + r"\b"
+    return re.sub(pattern, replacement, text)
+
+
+def normalize_query(question: str) -> str:
+    normalized = normalize_text(question)
+
+    for canonical, variants in sorted(
+        QUERY_NORMALIZATIONS.items(),
+        key=lambda item: (-len(item[0]), len(item[1])),
+    ):
+        for variant in sorted(variants, key=len, reverse=True):
+            normalized = _replace_phrase(normalized, normalize_text(variant), canonical)
+
+    return re.sub(r"\\s+", " ", normalized).strip()
+
+
 def token_set(text: str) -> set[str]:
-    tokens = [token for token in normalize_text(text).split() if len(token) > 1]
+    tokens = [token for token in normalize_query(text).split() if len(token) > 1]
     return {token for token in tokens if token not in STOPWORDS}
+
+
+def expand_query_terms(question: str) -> set[str]:
+    normalized = normalize_query(question)
+    terms = token_set(normalized)
+
+    for canonical, variants in SYNONYMS.items():
+        canonical_terms = token_set(canonical)
+        if terms & canonical_terms:
+            terms.update(canonical_terms)
+            for variant in variants:
+                terms.update(token_set(variant))
+            continue
+
+        for variant in variants:
+            variant_terms = token_set(variant)
+            if variant_terms and variant_terms <= terms:
+                terms.update(canonical_terms)
+                terms.update(variant_terms)
+                break
+
+    return terms
+
+
+def split_chunks(text: str) -> list[str]:
+    chunks = [chunk.strip() for chunk in re.split(r"\n\s*\n+", text) if chunk.strip()]
+    if chunks:
+        return chunks
+    stripped = text.strip()
+    return [stripped] if stripped else []
+
+
+def score_overlap(question_terms: set[str], candidate_text: str) -> float:
+    candidate_terms = token_set(candidate_text)
+    if not question_terms or not candidate_terms:
+        return 0.0
+
+    overlap = len(question_terms & candidate_terms)
+    if overlap == 0:
+        return 0.0
+
+    coverage = overlap / max(1, len(question_terms))
+    density = overlap / max(1, len(candidate_terms))
+    return round((coverage * 0.75) + (density * 0.25), 4)
+
+
+def best_chunk_match(question: str, chunks: list[str], threshold: float):
+    question_terms = expand_query_terms(question)
+    normalized_question = normalize_query(question)
+
+    best_score = 0.0
+    best_chunk = None
+
+    for chunk in chunks:
+        candidate = chunk.strip()
+        if not candidate:
+            continue
+
+        normalized_candidate = normalize_query(candidate)
+        if normalized_candidate and (
+            normalized_candidate in normalized_question
+            or normalized_question in normalized_candidate
+        ):
+            return candidate, 1.0
+
+        score = score_overlap(question_terms, candidate)
+        if score > best_score:
+            best_score = score
+            best_chunk = candidate
+
+    if best_chunk is not None and best_score >= threshold:
+        return best_chunk, best_score
+
+    return None, 0.0
+
+
+def score_custom_faq(question: str, faq_question: str) -> float:
+    question_terms = expand_query_terms(question)
+    faq_terms = token_set(faq_question)
+    if not question_terms or not faq_terms:
+        return 0.0
+
+    overlap = len(question_terms & faq_terms)
+    if overlap == 0:
+        return 0.0
+
+    coverage = overlap / max(1, len(question_terms))
+    density = overlap / max(1, len(faq_terms))
+    return round((coverage * 0.75) + (density * 0.25), 4)
 
 
 def load_seed_properties():
@@ -196,11 +415,8 @@ def match_custom_faq(question: str, property_config: dict):
     if not isinstance(faqs, list):
         return None
 
-    question_text = normalize_text(question)
-    question_tokens = token_set(question)
-
     best_score = 0.0
-    best_answer = None
+    best_match = None
 
     for faq in faqs:
         if not isinstance(faq, dict):
@@ -211,28 +427,31 @@ def match_custom_faq(question: str, property_config: dict):
         if not faq_question or not faq_answer:
             continue
 
-        faq_text = normalize_text(faq_question)
-        if faq_text in question_text or question_text in faq_text:
+        faq_text = normalize_query(faq_question)
+        question_text = normalize_query(question)
+        if faq_text and (
+            faq_text in question_text
+            or question_text in faq_text
+        ):
             return {
                 "answer": faq_answer,
+                "citation": "property_config",
                 "source": "property_config",
+                "confidence": 1.0,
             }
 
-        faq_tokens = token_set(faq_question)
-        if not faq_tokens or not question_tokens:
-            continue
-
-        overlap = len(question_tokens & faq_tokens)
-        score = overlap / max(1, len(faq_tokens))
+        score = score_custom_faq(question, faq_question)
 
         if score > best_score:
             best_score = score
-            best_answer = faq_answer
+            best_match = faq_answer
 
-    if best_answer is not None and best_score >= 0.5:
+    if best_match is not None and best_score >= FAQ_CONFIDENCE_THRESHOLD:
         return {
-            "answer": best_answer,
+            "answer": best_match,
+            "citation": "property_config",
             "source": "property_config",
+            "confidence": best_score,
         }
 
     return None
@@ -403,7 +622,7 @@ def validate_sql(sql: str):
     if not lowered.startswith("select"):
         raise ValueError("Only SELECT allowed")
 
-    for word in BLOCKED_PATTERNS:
+    for word in SQL_BLOCKED_PATTERNS:
         if word in lowered:
             raise ValueError("Unsafe SQL")
 
@@ -421,35 +640,39 @@ def rag_answer(question, property_id):
     if custom_faq_match:
         return custom_faq_match
 
-    path = f"kb/{property_id}.txt"
+    path = os.path.join(KB_DIR, f"{property_id}.txt")
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+            chunks = split_chunks(f.read())
 
-        line_match = best_line_match(question, lines)
-        if line_match:
+        chunk_match, confidence = best_chunk_match(question, chunks, KB_CONFIDENCE_THRESHOLD)
+        if chunk_match:
             return {
-                "answer": line_match,
+                "answer": chunk_match,
+                "citation": f"{property_id}.txt",
                 "source": f"{property_id}.txt",
+                "confidence": confidence,
             }
 
-    platform_path = "kb/platform.txt"
+    platform_path = os.path.join(KB_DIR, "platform.txt")
     if os.path.exists(platform_path):
         with open(platform_path, "r", encoding="utf-8") as f:
-            platform_lines = f.readlines()
+            chunks = split_chunks(f.read())
 
-        line_match = best_line_match(question, platform_lines)
-        if line_match:
+        chunk_match, confidence = best_chunk_match(question, chunks, PLATFORM_CONFIDENCE_THRESHOLD)
+        if chunk_match:
             return {
-                "answer": line_match,
+                "answer": chunk_match,
+                "citation": "platform.txt",
                 "source": "platform.txt",
+                "confidence": confidence,
             }
 
     return None
 
 def detect_cross_tenant(question, property_id):
 
-    q = normalize_text(question)
+    q = normalize_query(question)
 
     seen_aliases = set()
 
@@ -486,7 +709,7 @@ def detect_injection(question: str):
 
     q = question.lower()
 
-    for pattern in BLOCKED_PATTERNS:
+    for pattern in QUESTION_BLOCKED_PATTERNS:
         if pattern in q:
             raise ValueError(
                 "Unsafe query detected"
