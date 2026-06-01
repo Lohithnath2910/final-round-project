@@ -723,34 +723,37 @@ def rag_answer(question, property_id):
 def detect_cross_tenant(question, property_id):
 
     q = normalize_query(question)
+    # Under RLS, enumerating properties via DB may return no rows for non-privileged
+    # sessions. Use the seed properties as authoritative for cross-tenant name checks.
 
-    seen_aliases = set()
+    # tokenized question for robust matching
+    q_tokens = token_set(question)
 
-    for tenant in get_all_properties():
-        if tenant == property_id:
-            continue
-
-        seen_aliases.add(normalize_text(tenant))
-
-        context = get_property_context(tenant)
-        tenant_name = context.get("name")
-        if tenant_name:
-            seen_aliases.add(normalize_text(str(tenant_name)))
+    GENERIC_TOKENS = {"hotel", "stay", "pg", "inn", "residence", "property"}
 
     for seed_record in load_seed_properties():
         tenant = seed_record.get("property_id")
-        if tenant == property_id:
+        if not tenant or tenant == property_id:
             continue
 
-        if tenant:
-            seen_aliases.add(normalize_text(str(tenant)))
+        # direct property_id mention (normalized)
+        if normalize_text(str(tenant)) in q:
+            raise ValueError("Cross-tenant access blocked")
 
-        tenant_name = seed_record.get("name")
-        if tenant_name:
-            seen_aliases.add(normalize_text(str(tenant_name)))
+        tenant_name = seed_record.get("name", "")
+        if not tenant_name:
+            continue
 
-    for alias in seen_aliases:
-        if alias and alias in q:
+        name_tokens = token_set(tenant_name)
+        if not name_tokens:
+            continue
+
+        intersect = name_tokens & q_tokens
+        if not intersect:
+            continue
+
+        # block only if intersecting tokens contain at least one non-generic token
+        if any(tok not in GENERIC_TOKENS for tok in intersect):
             raise ValueError("Cross-tenant access blocked")
 
     return True

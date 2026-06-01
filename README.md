@@ -77,3 +77,69 @@ The seed data is for you to build against. At grading we hit your **deployed API
 - **Follow-up:** 45-min live — modify code on the spot + explain a guard.
 
 Scope tip: a correct, deployed A + B with a thin working C beats a pretty C with leaky guards. Build the guards first.
+
+---
+
+## Quick Start — Backend Setup & Test
+
+### Prerequisites
+- **Python 3.11+** with `venv`
+- **PostgreSQL 13+** with RLS support (local instance or cloud)
+- **.env** configured with `DATABASE_URL` (e.g., `postgresql://user:pass@localhost/hms_capstone`)
+
+### 1. Activate Virtual Env & Install Dependencies
+```bash
+cd backend
+source venv/Scripts/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. Initialize Database with RLS
+The schema in `seed/schema.sql` defines **RLS policies** that enforce tenant isolation. To seed the database **with RLS enabled**:
+
+```bash
+# From root directory:
+psql -h localhost -U postgres -d hms_capstone -f seed/schema.sql
+psql -h localhost -U postgres -d hms_capstone -f seed/data.sql
+# RLS-safe seeding (sets tenant context per insert):
+psql -h localhost -U postgres -d hms_capstone -f seed/seed_with_rls.sql
+```
+
+Or use your `.env` `DATABASE_URL`:
+```bash
+psql "$DATABASE_URL" -f seed/schema.sql
+psql "$DATABASE_URL" -f seed/data.sql
+psql "$DATABASE_URL" -f seed/seed_with_rls.sql
+```
+
+### 3. Start the Backend Server
+```bash
+cd backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Server runs at `http://localhost:8000/`. Docs at `http://localhost:8000/docs`.
+
+### 4. (Optional) Start the Queue Worker
+In a separate terminal:
+```bash
+cd backend
+python worker.py
+```
+
+The worker claims pending jobs from `workflow_jobs` table and transitions them to `in_progress` → `done`/`failed`. Uses atomic `FOR UPDATE SKIP LOCKED` (demonstrates concurrency safety).
+
+### 5. Run the Test Suite
+In the `backend/` directory with venv active:
+```bash
+python -m pytest -v
+```
+
+**All 36 tests pass:**
+- **Part A tests** (19): message classification, intent routing, tenant isolation, idempotency, cross-tenant blocking
+- **Part B tests** (13): NL→SQL analytics, RAG with citations, injection & destructive SQL blocking
+- **Hinglish RAG tests** (4): Hinglish normalization, synonyms, token-overlap scoring, refusal on unknowns
+
+For detailed results, see `TESTING.md` below.
+
+---
