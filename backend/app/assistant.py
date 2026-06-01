@@ -125,6 +125,37 @@ SYNONYMS = {
         "mess",
         "meal",
     ],
+    "shuttle": [
+        "shuttle",
+        "airport shuttle",
+        "airport pickup",
+    ],
+    "onboarding": [
+        "onboarding",
+        "setup",
+        "setup process",
+        "add property",
+    ],
+    "deposit": [
+        "deposit",
+        "security deposit",
+        "advance",
+    ],
+    "rent": [
+        "rent",
+        "monthly rent",
+        "rent price",
+    ],
+    "booking": [
+        "booking",
+        "bookings",
+        "reservation",
+    ],
+    "revenue": [
+        "revenue",
+        "income",
+        "earnings",
+    ],
 }
 
 QUERY_NORMALIZATIONS = {
@@ -150,6 +181,25 @@ QUERY_NORMALIZATIONS = {
     "review response": [
         "review ka reply kaise karu",
         "ota review response",
+    ],
+    "onboarding": [
+        "how does onboarding work",
+        "onboarding takes",
+        "how to add property",
+    ],
+    "shuttle": [
+        "airport shuttle",
+        "do you have airport shuttle",
+        "airport pickup available",
+    ],
+    "deposit": [
+        "deposit",
+        "security deposit",
+        "deposit refundable",
+    ],
+    "rent": [
+        "monthly rent",
+        "rent price",
     ],
 }
 
