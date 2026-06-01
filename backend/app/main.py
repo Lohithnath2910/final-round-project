@@ -3,12 +3,22 @@ Engineering Capstone — backend skeleton (Part A + Part B). Fill the TODOs.
 TS/Deno equivalent is fine — mirror these contracts. The grade is in the guards.
 """
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uuid
 import time
 import json
 from app.db import get_conn
+
+from app.assistant import (
+    is_data_question,
+    nl_to_sql,
+    validate_sql,
+    rag_answer,
+    detect_cross_tenant,
+    detect_injection
+)
 
 app = FastAPI(title="Engineering Capstone")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -480,19 +490,71 @@ def bookings(property_id: str):
 
 
 # ---------- Part B: Data Assistant ----------
-def nl_to_sql(question: str, property_id: str) -> str:
-    """Guarded: force property_id filter in code; single read-only SELECT only;
-    validate tables/columns vs schema. Raise to block. TODO."""
-    raise NotImplementedError
-
-
-def rag_answer(question: str) -> dict:
-    """Retrieve from kb/, answer with {answer, source}. TODO."""
-    return {"answer": None, "source": None}
-
-
 @app.post("/ask")
 def ask(req: Ask):
-    """product-help→rag; else guarded nl_to_sql→read-only tenant-scoped run→{answer,sql,rows}.
-    unanswerable→refuse, don't fabricate. TODO."""
-    return {"answer": None, "sql": None, "rows": [], "note": "not_implemented"}
+    try:
+        detect_injection(req.question)
+        detect_cross_tenant(
+        req.question,
+        req.property_id
+        )
+
+        if is_data_question(req.question):
+
+            sql = nl_to_sql(req.question,
+                            req.property_id)
+
+            validate_sql(sql)
+
+            conn = get_conn()
+            cur = conn.cursor()
+
+            set_tenant(cur, req.property_id)
+
+            cur.execute(
+                sql,
+                (req.property_id,)
+            )
+
+            rows = cur.fetchall()
+
+            if rows:
+                if(len(rows[0]) == 1):
+                    answer = str(rows[0][0])
+                else:
+                    answer = str(rows[0])
+
+            else:
+                answer = "No matching records found."
+            return {
+                "answer": answer,
+                "sql": sql,
+                "rows": rows
+            }
+
+        rag = rag_answer(
+            req.question,
+            req.property_id
+        )
+
+        if rag:
+
+            return {
+                "answer": rag["answer"],
+                "sql": None,
+                "rows": [],
+                "citation": rag["source"]
+            }
+
+        return {
+            "answer": "I don't have enough information to answer that.",
+            "sql": None,
+            "rows": []
+        }
+
+    except ValueError as e:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )

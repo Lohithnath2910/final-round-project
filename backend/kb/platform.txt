@@ -1,0 +1,8 @@
+# Onboarding a property
+Onboarding takes under 15 minutes via WhatsApp or the web console: add property details, room types, base rates, and connect your OTA extranets. KYC and consent are captured per DPDP requirements.
+
+# Managing room rates
+To change a rate: open Channel Manager > Rate Management, pick the room type and date, enter the new price, and Save. Changes sync to connected OTAs within the next sync cycle. Rate parity warnings appear if your direct price undercuts an OTA contract.
+
+# Responding to OTA reviews
+Open Channel Manager > Reviews. Select a review, draft a response (the assistant can suggest one), and Publish. Responses post back to the OTA extranet. Aim to respond within 48 hours; faster responses improve ranking.
