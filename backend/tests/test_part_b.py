@@ -129,6 +129,23 @@ def test_onboarding_rag():
     assert body["citation"] == "platform.txt"
 
 
+def test_tenant_kb_deposit_fallback():
+
+    response = client.post(
+        "/ask",
+        json={
+            "property_id": "hotel_a",
+            "question": "do you have airport shuttle?"
+        }
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["citation"] == "hotel_a.txt"
+    assert "airport shuttle" in body["answer"].lower()
+
+
 def test_unknown_question_refused():
 
     response = client.post(

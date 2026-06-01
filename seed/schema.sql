@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS properties (
   property_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   city TEXT,
-  total_rooms INT
+  total_rooms INT,
+  property_config JSONB
 );
 CREATE TABLE IF NOT EXISTS rooms (
   room_id TEXT PRIMARY KEY,
@@ -40,6 +41,8 @@ CREATE TABLE IF NOT EXISTS messages (
   status TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS messages_message_id_uidx ON messages(message_id);
 
 CREATE TABLE IF NOT EXISTS events (
   event_id TEXT PRIMARY KEY,

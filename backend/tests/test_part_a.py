@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 from app.main import app
+from app.db import get_conn
 import uuid
 
 client = TestClient(app)
@@ -7,6 +8,26 @@ client = TestClient(app)
 
 def msg_id():
     return str(uuid.uuid4())
+
+
+def count_rows_like(table_name: str, needle: str) -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        if table_name == "messages":
+            cur.execute(
+                "SELECT COUNT(*) FROM messages WHERE message_id = %s",
+                (needle,),
+            )
+        else:
+            cur.execute(
+                f"SELECT COUNT(*) FROM {table_name} WHERE payload::text LIKE %s",
+                (f"%{needle}%",),
+            )
+        return cur.fetchone()[0]
+    finally:
+        cur.close()
+        conn.close()
 
 
 # -------------------------
@@ -296,3 +317,73 @@ def test_latency_present():
 
     assert "latency_ms" in body
     assert body["latency_ms"] >= 0
+
+
+def test_property_config_onboarding_and_faq_lookup():
+    property_id = f"pytest_property_{uuid.uuid4().hex[:8]}"
+
+    create_response = client.post(
+        "/property",
+        json={
+            "property_id": property_id,
+            "name": "Pytest Hotel",
+            "city": "Pune",
+            "total_rooms": 10,
+            "property_config": {
+                "language": "hi",
+                "custom_faqs": [
+                    {"q": "checkout time", "a": "11 AM"},
+                    {"q": "wifi", "a": "Free WiFi, password at reception"},
+                ],
+            },
+        },
+    )
+
+    assert create_response.status_code == 200
+    assert create_response.json()["stored"] is True
+
+    ask_response = client.post(
+        "/ask",
+        json={
+            "property_id": property_id,
+            "question": "what is the checkout time?",
+        },
+    )
+
+    body = ask_response.json()
+
+    assert ask_response.status_code == 200
+    assert body["citation"] == "property_config"
+    assert body["answer"] == "11 AM"
+
+
+def test_duplicate_message_is_atomic_and_single_effect():
+    duplicate_id = f"pytest_duplicate_atomic_{uuid.uuid4().hex}"
+
+    payload = {
+        "property_id": "hotel_a",
+        "guest_id": "test_guest",
+        "message_id": duplicate_id,
+        "text": "book a room tomorrow",
+    }
+
+    first_response = client.post("/message", json=payload)
+    second_response = client.post("/message", json=payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert second_response.json()["status"] == "duplicate"
+    assert count_rows_like("messages", duplicate_id) == 1
+    assert count_rows_like("events", duplicate_id) == 1
+
+
+def test_cross_tenant_block_by_property_name():
+    response = client.post(
+        "/ask",
+        json={
+            "property_id": "hotel_b",
+            "question": "How many bookings does Hotel Surya have?",
+        },
+    )
+
+    assert response.status_code >= 400

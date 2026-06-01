@@ -1,5 +1,11 @@
+import json
 import os
+import re
 from app.db import get_conn
+
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+SEED_PROPERTIES_PATH = os.path.join(ROOT_DIR, "seed", "properties.json")
+_SEED_PROPERTIES_CACHE = None
 
 DATA_PATTERNS = {
     "booking_count": [
@@ -28,13 +34,208 @@ DATA_PATTERNS = {
     ]
 }
 
-SERVICE_ALIASES = {
-    "wifi": ["wifi", "internet"],
-    "parking": ["parking"],
-    "deposit": ["deposit", "security deposit"],
-    "food": ["food", "meal", "mess"],
-    "checkout": ["checkout", "check out"]
+STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "at",
+    "be",
+    "can",
+    "do",
+    "for",
+    "from",
+    "have",
+    "how",
+    "i",
+    "is",
+    "it",
+    "my",
+    "of",
+    "on",
+    "or",
+    "please",
+    "the",
+    "to",
+    "us",
+    "we",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "with",
+    "work",
+    "work?",
 }
+
+
+def normalize_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def token_set(text: str) -> set[str]:
+    tokens = [token for token in normalize_text(text).split() if len(token) > 1]
+    return {token for token in tokens if token not in STOPWORDS}
+
+
+def load_seed_properties():
+    global _SEED_PROPERTIES_CACHE
+
+    if _SEED_PROPERTIES_CACHE is not None:
+        return _SEED_PROPERTIES_CACHE
+
+    if not os.path.exists(SEED_PROPERTIES_PATH):
+        _SEED_PROPERTIES_CACHE = []
+        return _SEED_PROPERTIES_CACHE
+
+    with open(SEED_PROPERTIES_PATH, "r", encoding="utf-8") as f:
+        _SEED_PROPERTIES_CACHE = json.load(f)
+
+    return _SEED_PROPERTIES_CACHE
+
+
+def get_property_context(property_id: str):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            "SELECT set_config('app.current_property', %s, false)",
+            (property_id,),
+        )
+        cur.execute(
+            """
+            SELECT name, COALESCE(property_config, '{}'::jsonb)
+            FROM properties
+            WHERE property_id = %s
+            """,
+            (property_id,),
+        )
+        row = cur.fetchone()
+
+        if row:
+            property_config = row[1] or {}
+            if isinstance(property_config, str):
+                try:
+                    property_config = json.loads(property_config)
+                except json.JSONDecodeError:
+                    property_config = {}
+
+            seed_record = next(
+                (item for item in load_seed_properties() if item.get("property_id") == property_id),
+                {},
+            )
+            merged_config = dict(seed_record)
+            merged_config.update(property_config if isinstance(property_config, dict) else {})
+
+            return {
+                "property_id": property_id,
+                "name": row[0],
+                "property_config": merged_config,
+            }
+
+        seed_record = next(
+            (item for item in load_seed_properties() if item.get("property_id") == property_id),
+            None,
+        )
+        if seed_record:
+            return {
+                "property_id": property_id,
+                "name": seed_record.get("name", property_id),
+                "property_config": seed_record,
+            }
+
+        return {
+            "property_id": property_id,
+            "name": property_id,
+            "property_config": {},
+        }
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+def best_line_match(question: str, lines: list[str]):
+    question_text = normalize_text(question)
+    question_tokens = token_set(question)
+
+    best_score = 0.0
+    best_line = None
+
+    for line in lines:
+        candidate = line.strip()
+        if not candidate or candidate.startswith("#"):
+            continue
+
+        candidate_text = normalize_text(candidate)
+        if candidate_text in question_text or question_text in candidate_text:
+            return candidate
+
+        candidate_tokens = token_set(candidate)
+        if not candidate_tokens or not question_tokens:
+            continue
+
+        overlap = len(question_tokens & candidate_tokens)
+        score = overlap / max(1, len(question_tokens))
+
+        if score > best_score:
+            best_score = score
+            best_line = candidate
+
+    if best_score >= 0.34:
+        return best_line
+
+    return None
+
+
+def match_custom_faq(question: str, property_config: dict):
+    faqs = property_config.get("custom_faqs") if isinstance(property_config, dict) else None
+    if not isinstance(faqs, list):
+        return None
+
+    question_text = normalize_text(question)
+    question_tokens = token_set(question)
+
+    best_score = 0.0
+    best_answer = None
+
+    for faq in faqs:
+        if not isinstance(faq, dict):
+            continue
+
+        faq_question = str(faq.get("q", "")).strip()
+        faq_answer = faq.get("a")
+        if not faq_question or not faq_answer:
+            continue
+
+        faq_text = normalize_text(faq_question)
+        if faq_text in question_text or question_text in faq_text:
+            return {
+                "answer": faq_answer,
+                "source": "property_config",
+            }
+
+        faq_tokens = token_set(faq_question)
+        if not faq_tokens or not question_tokens:
+            continue
+
+        overlap = len(question_tokens & faq_tokens)
+        score = overlap / max(1, len(faq_tokens))
+
+        if score > best_score:
+            best_score = score
+            best_answer = faq_answer
+
+    if best_answer is not None and best_score >= 0.5:
+        return {
+            "answer": best_answer,
+            "source": "property_config",
+        }
+
+    return None
 
 
 def get_all_properties():
@@ -56,7 +257,7 @@ def get_all_properties():
         cur.close()
         conn.close()
 
-        
+
 OTA_SOURCES = [
     "mmt",
     "agoda",
@@ -214,87 +415,70 @@ def validate_sql(sql: str):
 
 def rag_answer(question, property_id):
 
-    q = question.lower()
+    context = get_property_context(property_id)
 
-    platform_path = "kb/platform.txt"
-
-    if os.path.exists(platform_path):
-
-        if (
-            "rate" in q
-            or "room rate" in q
-            or "price" in q
-        ):
-            return {
-                "answer":
-                "Open Channel Manager > Rate Management, pick the room type and date, enter the new price and save.",
-                "source":
-                "platform.txt"
-            }
-
-        if (
-            "review" in q
-            or "ota review" in q
-        ):
-            return {
-                "answer":
-                "Open Channel Manager > Reviews, select a review, draft a response and publish.",
-                "source":
-                "platform.txt"
-            }
-
-        if (
-            "onboarding" in q
-            or "setup property" in q
-            or "add property" in q
-        ):
-            return {
-                "answer":
-                "Onboarding takes under 15 minutes via WhatsApp or the web console.",
-                "source":
-                "platform.txt"
-            }
-
-    # Tenant KB fallback
+    custom_faq_match = match_custom_faq(question, context.get("property_config", {}))
+    if custom_faq_match:
+        return custom_faq_match
 
     path = f"kb/{property_id}.txt"
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
 
-    if not os.path.exists(path):
-        return None
+        line_match = best_line_match(question, lines)
+        if line_match:
+            return {
+                "answer": line_match,
+                "source": f"{property_id}.txt",
+            }
 
-    with open(path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
+    platform_path = "kb/platform.txt"
+    if os.path.exists(platform_path):
+        with open(platform_path, "r", encoding="utf-8") as f:
+            platform_lines = f.readlines()
 
-    for service, aliases in SERVICE_ALIASES.items():
-
-        if any(alias in q for alias in aliases):
-
-            for line in lines:
-
-                if service.lower() in line.lower():
-
-                    return {
-                        "answer": line.strip(),
-                        "source": f"{property_id}.txt"
-                    }
+        line_match = best_line_match(question, platform_lines)
+        if line_match:
+            return {
+                "answer": line_match,
+                "source": "platform.txt",
+            }
 
     return None
 
 def detect_cross_tenant(question, property_id):
 
-    q = question.lower()
+    q = normalize_text(question)
 
-    tenants = get_all_properties()
+    seen_aliases = set()
 
-    for tenant in tenants:
-
+    for tenant in get_all_properties():
         if tenant == property_id:
             continue
 
-        if tenant.lower() in q:
-            raise ValueError(
-                "Cross-tenant access blocked"
-            )
+        seen_aliases.add(normalize_text(tenant))
+
+        context = get_property_context(tenant)
+        tenant_name = context.get("name")
+        if tenant_name:
+            seen_aliases.add(normalize_text(str(tenant_name)))
+
+    for seed_record in load_seed_properties():
+        tenant = seed_record.get("property_id")
+        if tenant == property_id:
+            continue
+
+        if tenant:
+            seen_aliases.add(normalize_text(str(tenant)))
+
+        tenant_name = seed_record.get("name")
+        if tenant_name:
+            seen_aliases.add(normalize_text(str(tenant_name)))
+
+    for alias in seen_aliases:
+        if alias and alias in q:
+            raise ValueError("Cross-tenant access blocked")
 
     return True
 

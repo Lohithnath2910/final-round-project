@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import uuid
 import time
 import json
+from typing import Any
 from app.db import get_conn
 
 from app.assistant import (
@@ -31,6 +32,7 @@ class PropertyCreate(BaseModel):
     name: str
     city: str
     total_rooms: int
+    property_config: dict[str, Any] | None = None
 
 class Message(BaseModel):
     property_id: str
@@ -86,29 +88,56 @@ def set_tenant(cur, property_id):
         (property_id,)
     )
 
+
+def ensure_schema_compatibility(conn):
+    cur = conn.cursor()
+    try:
+        cur.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS property_config JSONB")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS messages_message_id_uidx ON messages(message_id)")
+        conn.commit()
+    finally:
+        cur.close()
+
+
+@app.on_event("startup")
+def startup_checks():
+    conn = get_conn()
+    try:
+        ensure_schema_compatibility(conn)
+    finally:
+        conn.close()
+
 @app.post("/property")
 def create_property(config: PropertyCreate):
     conn = get_conn()
     cur = conn.cursor()
     set_tenant(cur, config.property_id)
     try:
-        # Insert property
+        property_config = json.dumps(config.property_config or {})
         cur.execute(
             """
             INSERT INTO properties (
                 property_id,
                 name,
                 city,
-                total_rooms
+                total_rooms,
+                property_config
             )
-            VALUES (%s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (property_id)
+            DO UPDATE SET
+                name = EXCLUDED.name,
+                city = EXCLUDED.city,
+                total_rooms = EXCLUDED.total_rooms,
+                property_config = EXCLUDED.property_config
             """,
             (
                 config.property_id,
                 config.name,
                 config.city,
-                config.total_rooms
-            )
+                config.total_rooms,
+                property_config,
+            ),
         )
 
         # Create lifecycle event
@@ -198,28 +227,6 @@ def handle_message(m: Message):
     set_tenant(cur, m.property_id)
 
     try:
-
-        # --------------------
-        # IDEMPOTENCY CHECK
-        # --------------------
-
-        cur.execute(
-            """
-            SELECT message_id
-            FROM messages
-            WHERE message_id = %s
-            """,
-            (m.message_id,)
-        )
-
-        existing = cur.fetchone()
-
-        if existing:
-            return {
-                "message_id": m.message_id,
-                "status": "duplicate"
-            }
-
         # --------------------
         # CLASSIFICATION
         # --------------------
@@ -242,6 +249,8 @@ def handle_message(m: Message):
                 status
             )
             VALUES(%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (message_id) DO NOTHING
+            RETURNING message_id
             """,
             (
                 m.message_id,
@@ -253,6 +262,13 @@ def handle_message(m: Message):
                 "received"
             )
         )
+
+        if cur.fetchone() is None:
+            conn.rollback()
+            return {
+                "message_id": m.message_id,
+                "status": "duplicate"
+            }
 
         # --------------------
         # HUMAN HANDOFF
@@ -492,17 +508,15 @@ def bookings(property_id: str):
 # ---------- Part B: Data Assistant ----------
 @app.post("/ask")
 def ask(req: Ask):
+    conn = None
+    cur = None
     try:
         detect_injection(req.question)
-        detect_cross_tenant(
-        req.question,
-        req.property_id
-        )
+        detect_cross_tenant(req.question, req.property_id)
 
         if is_data_question(req.question):
 
-            sql = nl_to_sql(req.question,
-                            req.property_id)
+            sql = nl_to_sql(req.question, req.property_id)
 
             validate_sql(sql)
 
@@ -558,3 +572,8 @@ def ask(req: Ask):
             status_code=400,
             detail=str(e)
         )
+    finally:
+        if cur is not None:
+            cur.close()
+        if conn is not None:
+            conn.close()
