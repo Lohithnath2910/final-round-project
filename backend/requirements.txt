@@ -2,5 +2,8 @@ fastapi
 uvicorn[standard]
 pydantic
 psycopg2-binary
+python-dotenv
 sqlparse
 pgvector
+pytest
+httpx

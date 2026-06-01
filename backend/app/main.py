@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uuid
+import time
 import json
 from app.db import get_conn
 
@@ -59,11 +60,27 @@ def health():
 
 
 # ---------- Part A: orchestration ----------
+WORKFLOW_REGISTRY = {
+    "booking": "booking_requested",
+    "cancellation": "cancellation_requested",
+    "complaint": "complaint_received",
+    "wakeup": "wakeup_requested",
+    "faq": "faq_received"
+}
+
+
+
+def set_tenant(cur, property_id):
+    cur.execute(
+        "SELECT set_config('app.current_property', %s, false)",
+        (property_id,)
+    )
+
 @app.post("/property")
 def create_property(config: PropertyCreate):
     conn = get_conn()
     cur = conn.cursor()
-
+    set_tenant(cur, config.property_id)
     try:
         # Insert property
         cur.execute(
@@ -125,26 +142,267 @@ def create_property(config: PropertyCreate):
         conn.close()
 
 
-def classify(text: str, cfg: dict) -> tuple[str, float]:
-    """2-stage: rules → LLM fallback. Return (intent, confidence). TODO."""
-    return ("faq", 0.0)
+def classify(text: str, cfg: dict = None):
+
+    text = text.lower()
+
+    if any(word in text for word in ["wake up", "wake me", "morning call"]):
+        return ("wakeup", 0.95)
+
+    if any(word in text for word in ["dirty", "not working", "bad service", "cold food", "complaint"]):
+        return ("complaint", 0.95)
+
+    if any(word in text for word in ["wifi", "checkin", "check-in", "checkout", "check-out", "parking"]):
+        return ("faq", 0.95)
+
+    if any(word in text for word in ["cancel"]):
+
+        if any(word in text for word in [
+            "maybe",
+            "not sure",
+            "thinking",
+            "change"
+        ]):
+            return ("cancellation", 0.40)
+
+        return ("cancellation", 0.95)
+
+    if any(word in text for word in [
+        "book",
+        "booking",
+        "reserve",
+        "room available",
+        "room for"
+    ]):
+        return ("booking", 0.95)
+
+    return ("faq", 0.30)
 
 
 @app.post("/message")
 def handle_message(m: Message):
-    """
-    idempotent on message_id · classify · low-confidence→needs_human ·
-    cancellation+low-confidence→confirm (no destructive effect) ·
-    else WorkflowRegistry → ENQUEUE side-effect (not inline). All tenant-scoped. TODO.
-    """
-    return {"message_id": m.message_id, "intent": None, "status": "not_implemented"}
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    set_tenant(cur, m.property_id)
+
+    try:
+
+        # --------------------
+        # IDEMPOTENCY CHECK
+        # --------------------
+
+        cur.execute(
+            """
+            SELECT message_id
+            FROM messages
+            WHERE message_id = %s
+            """,
+            (m.message_id,)
+        )
+
+        existing = cur.fetchone()
+
+        if existing:
+            return {
+                "message_id": m.message_id,
+                "status": "duplicate"
+            }
+
+        # --------------------
+        # CLASSIFICATION
+        # --------------------
+        start = time.perf_counter()
+        intent, confidence = classify(m.text)
+        latency_ms = (time.perf_counter() - start) * 1000
+        # --------------------
+        # STORE MESSAGE
+        # --------------------
+
+        cur.execute(
+            """
+            INSERT INTO messages(
+                message_id,
+                property_id,
+                guest_id,
+                text,
+                intent,
+                confidence,
+                status
+            )
+            VALUES(%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                m.message_id,
+                m.property_id,
+                m.guest_id,
+                m.text,
+                intent,
+                confidence,
+                "received"
+            )
+        )
+
+        # --------------------
+        # HUMAN HANDOFF
+        # --------------------
+
+        if confidence < CONFIDENCE_THRESHOLD:
+
+            cur.execute(
+                """
+                INSERT INTO events(
+                    event_id,
+                    property_id,
+                    event_type,
+                    payload
+                )
+                VALUES(%s,%s,%s,%s)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    m.property_id,
+                    "needs_human",
+                    json.dumps({
+                        "message_id": m.message_id,
+                        "text": m.text,
+                        "latency_ms": latency_ms
+                    })
+                )
+            )
+
+            conn.commit()
+
+            return {
+                "message_id": m.message_id,
+                "intent": intent,
+                "status": "needs_human",
+                "latency_ms": latency_ms
+            }
+
+        # --------------------
+        # CANCELLATION GUARD
+        # --------------------
+
+        if (
+            intent == "cancellation"
+            and confidence < 0.8
+        ):
+
+            cur.execute(
+                """
+                INSERT INTO events(
+                    event_id,
+                    property_id,
+                    event_type,
+                    payload
+                )
+                VALUES(%s,%s,%s,%s)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    m.property_id,
+                    "confirmation_required",
+                    json.dumps({
+                        "message_id": m.message_id,
+                        "latency_ms": latency_ms
+                    })
+                )
+            )
+
+            conn.commit()
+
+            return {
+                "message_id": m.message_id,
+                "intent": intent,
+                "status": "confirmation_required",
+                "latency_ms": latency_ms
+            }
+
+        # --------------------
+        # QUEUE JOB
+        # --------------------
+
+        cur.execute(
+            """
+            INSERT INTO workflow_jobs(
+                job_id,
+                property_id,
+                job_type,
+                status,
+                payload
+            )
+            VALUES(%s,%s,%s,%s,%s)
+            """,
+            (
+                str(uuid.uuid4()),
+                m.property_id,
+                intent,
+                "pending",
+                json.dumps({
+                    "message_id": m.message_id,
+                    "guest_id": m.guest_id,
+                    "text": m.text,
+                    "latency_ms": latency_ms
+                })
+            )
+        )
+
+        # --------------------
+        # EVENT TYPE
+        # --------------------
+
+        cur.execute(
+            """
+            INSERT INTO events(
+                event_id,
+                property_id,
+                event_type,
+                payload
+            )
+            VALUES(%s,%s,%s,%s)
+            """,
+            (
+                str(uuid.uuid4()),
+                m.property_id,
+                WORKFLOW_REGISTRY[intent],
+                json.dumps({
+                    "message_id": m.message_id,
+                    "latency_ms": latency_ms
+                })
+            )
+        )
+
+        conn.commit()
+
+        return {
+            "message_id": m.message_id,
+            "intent": intent,
+            "confidence": confidence,
+            "status": "queued",
+            "latency_ms": latency_ms
+        }
+
+    except Exception as e:
+
+        conn.rollback()
+
+        return {
+            "error": str(e)
+        }
+
+    finally:
+
+        cur.close()
+        conn.close()
 
 
 @app.get("/events")
 def events(property_id: str):
     conn = get_conn()
     cur = conn.cursor()
-
+    set_tenant(cur, property_id)
     try:
         cur.execute(
             """
@@ -183,7 +441,7 @@ def events(property_id: str):
 def bookings(property_id: str):
     conn = get_conn()
     cur = conn.cursor()
-
+    set_tenant(cur, property_id)
     try:
         cur.execute(
             """
