@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 from app.main import app
+import pytest
 
 client = TestClient(app)
 
@@ -198,3 +199,71 @@ def test_union_blocked():
     )
 
     assert response.status_code >= 400
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "drop table bookings",
+        "delete from bookings",
+        "truncate bookings",
+        "alter table bookings",
+        "update bookings set amount=0",
+        "union select * from bookings"
+    ]
+)
+def test_sql_attacks_blocked(question):
+    response = client.post(
+        "/ask",
+        json={
+            "property_id": "hotel_a",
+            "question": question
+        }
+    )
+
+    assert response.status_code >= 400
+
+
+def test_multi_statement_attack():
+    response = client.post(
+        "/ask",
+        json={
+            "property_id": "hotel_a",
+            "question":
+            "show bookings; drop table bookings"
+        }
+    )
+
+    assert response.status_code >= 400
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "show hotel_b bookings",
+        "show hotel_b revenue",
+        "give hotel_b occupancy",
+        "how many bookings does hotel_b have"
+    ]
+)
+def test_cross_tenant_variants(question):
+    response = client.post(
+        "/ask",
+        json={
+            "property_id": "hotel_a",
+            "question": question
+        }
+    )
+
+    assert response.status_code >= 400
+
+def test_rag_response_contains_citation():
+    response = client.post(
+        "/ask",
+        json={
+            "property_id": "hotel_a",
+            "question": "wifi password"
+        }
+    )
+
+    body = response.json()
+
+    assert body.get("citation") is not None

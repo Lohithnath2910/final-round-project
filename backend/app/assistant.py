@@ -218,6 +218,8 @@ SQL_BLOCKED_PATTERNS = [
     "union",
     "information_schema",
     "pg_catalog",
+    "truncate",
+
 ]
 
 QUESTION_BLOCKED_PATTERNS = [
@@ -230,6 +232,8 @@ QUESTION_BLOCKED_PATTERNS = [
     "union",
     "information_schema",
     "pg_catalog",
+    "truncate",
+    "update"
 ]
 
 

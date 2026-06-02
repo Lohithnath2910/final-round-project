@@ -200,7 +200,11 @@ def classify(text: str, cfg: dict = None):
             "maybe",
             "not sure",
             "thinking",
-            "change"
+            "change",
+            "might",
+            "thinking of",
+            "can i",
+            "should i",
         ]):
             return ("cancellation", 0.40)
 

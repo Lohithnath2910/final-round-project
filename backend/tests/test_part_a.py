@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.db import get_conn
 import uuid
+import pytest
 
 client = TestClient(app)
 
@@ -387,3 +388,70 @@ def test_cross_tenant_block_by_property_name():
     )
 
     assert response.status_code >= 400
+
+
+def test_empty_message_rejected():
+    response = client.post(
+        "/message",
+        json={
+            "property_id": "hotel_a",
+            "guest_id": "guest",
+            "message_id": msg_id(),
+            "text": ""
+        }
+    )
+
+    assert response.status_code == 200
+
+def test_whitespace_message_rejected():
+    response = client.post(
+        "/message",
+        json={
+            "property_id": "hotel_a",
+            "guest_id": "guest",
+            "message_id": msg_id(),
+            "text": "      "
+        }
+    )
+
+    assert response.status_code == 200
+
+
+
+def test_duplicate_replay_many_times():
+    duplicate_id = f"dup_{uuid.uuid4().hex}"
+
+    payload = {
+        "property_id": "hotel_a",
+        "guest_id": "guest",
+        "message_id": duplicate_id,
+        "text": "book room tomorrow"
+    }
+
+    for _ in range(10):
+        client.post("/message", json=payload)
+
+    assert count_rows_like("messages", duplicate_id) == 1
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "maybe cancel",
+        "might cancel",
+        "thinking of cancelling",
+        "should i cancel",
+        "can i cancel later"
+    ]
+)
+def test_ambiguous_cancel_variants(text):
+    response = client.post(
+        "/message",
+        json={
+            "property_id": "hotel_a",
+            "guest_id": "guest",
+            "message_id": msg_id(),
+            "text": text
+        }
+    )
+
+    assert response.json()["status"] == "needs_human"
