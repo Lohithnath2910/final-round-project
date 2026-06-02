@@ -9,6 +9,7 @@ Usage: python worker.py
 """
 import time
 from app.db import get_conn
+import json
 
 PROCESS_SLEEP = 1.0
 
@@ -44,16 +45,53 @@ def claim_one_job(conn):
 
 
 def mark_done(conn, job_id):
+
     cur = conn.cursor()
+
     try:
+
         cur.execute(
-            "UPDATE workflow_jobs SET status = 'done' WHERE job_id = %s",
+            """
+            UPDATE workflow_jobs
+            SET status = 'done'
+            WHERE job_id = %s
+            RETURNING property_id, job_type, payload
+            """,
             (job_id,)
         )
+
+        row = cur.fetchone()
+
+        if row:
+
+            property_id, job_type, payload = row
+
+            cur.execute(
+                """
+                INSERT INTO events(
+                    event_id,
+                    property_id,
+                    event_type,
+                    payload
+                )
+                VALUES(
+                    gen_random_uuid()::text,
+                    %s,
+                    %s,
+                    %s
+                )
+                """,
+                (
+                    property_id,
+                    f"{job_type}_completed",
+                    json.dumps(payload)
+                )
+            )
+
         conn.commit()
+
     finally:
         cur.close()
-
 
 def process_payload(payload):
     # For the capstone, we simulate processing. In real life, implement OTA calls.
@@ -76,6 +114,47 @@ def main_loop():
                 process_payload(payload)
                 mark_done(conn, job_id)
             except Exception as e:
+                cur = conn.cursor()
+
+                cur.execute(
+                    """
+                    UPDATE workflow_jobs
+                    SET status = 'failed'
+                    WHERE job_id = %s
+                    RETURNING property_id, job_type
+                    """,
+                    (job_id,)
+                )
+
+                row = cur.fetchone()
+
+                if row:
+                    property_id, job_type = row
+
+                    cur.execute(
+                        """
+                        INSERT INTO events(
+                            event_id,
+                            property_id,
+                            event_type,
+                            payload
+                        )
+                        VALUES(
+                            gen_random_uuid(),
+                            %s,
+                            %s,
+                            %s
+                        )
+                        """,
+                        (
+                            property_id,
+                            f"{job_type}_failed",
+                            '{"reason":"worker_exception"}'
+                        )
+                    )
+
+                conn.commit()
+                cur.close()
                 print('job failed', job_id, e)
                 # For minimal worker we mark failed and continue; improvements: retry_count/backoff
                 cur = conn.cursor()
