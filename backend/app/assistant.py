@@ -571,6 +571,7 @@ def nl_to_sql(question: str,property_id: str):
         "no-show" in q
         or "no show" in q
         or "noshow" in q
+        or "no_show" in q
     ):
         return """
         SELECT COUNT(*) AS no_show_count
