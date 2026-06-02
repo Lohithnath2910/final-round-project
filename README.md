@@ -2,6 +2,16 @@
 
 A multi-tenant Hospitality Management System (HMS) assistant built for the Engineering Capstone.
 
+# Live Deployments
+
+Frontend
+
+https://final-round-project.vercel.app/
+
+Backend
+
+https://final-round-project.onrender.com/
+
 The platform combines:
 
 - Conversation orchestration and lifecycle management
@@ -515,7 +525,62 @@ Response:
 ```text
 I don't have enough information to answer that.
 ```
+---
+# Part C — Owner Console
 
+The Owner Console is a mobile-first React + TypeScript SPA that provides operational visibility into property activity and exposes the Data Assistant.
+
+Features:
+
+- Live-ish lifecycle feed
+- Bookings dashboard
+- Ask Assistant interface
+- SQL visibility for analytics queries
+- Loading states
+- Empty states
+- Error states
+
+The frontend contains no business logic.
+
+All orchestration, analytics, security checks, and tenant isolation remain in the backend.
+
+### Frontend Stack
+
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- Playwright
+
+---
+
+# Part D — Testing & QA
+
+Testing was designed around the highest-risk failure modes:
+
+- cross-tenant leakage
+- unsafe SQL execution
+- incorrect workflow automation
+- duplicate processing
+- hallucinated assistant responses
+
+### Test Results
+
+Backend Tests:
+
+66 passing
+
+Frontend E2E Tests:
+
+8 passing
+
+Total:
+
+74 passing tests
+
+Pass Rate:
+
+100%
 ---
 
 # Multi-Tenant Isolation
@@ -570,49 +635,71 @@ Tenant isolation is enforced at the database layer.
 
 # Performance
 
-Classification benchmark:
+Classification Benchmark
+
+1000 requests
 
 | Metric | Value |
-|----------|---------|
-| Average | 0.03 ms |
-| P50 | 0.02 ms |
-| P95 | 0.04 ms |
-| P99 | 0.14 ms |
-| Min | 0.01 ms |
-| Max | 0.14 ms |
+|----------|----------|
+| Average | 0.0304 ms |
+| P50 | 0.0257 ms |
+| P95 | 0.0545 ms |
+| P99 | 0.1179 ms |
+| Min | 0.0102 ms |
+| Max | 0.4122 ms |
 
-Benchmark executed using 100 classification requests.
+---
+
+/message End-to-End Latency
+
+1000 requests
+
+| Metric | Value |
+|----------|----------|
+| Average | 580.3383 ms |
+| P50 | 543.8981 ms |
+| P95 | 793.8872 ms |
+| P99 | 1073.0684 ms |
+| Min | 428.9723 ms |
+| Max | 3791.7402 ms |
+
 
 ---
 
 # Testing
 
-Current status:
+74 / 74 tests passing
 
-```text
-36 / 36 tests passing
-```
+Backend:
 
-Coverage includes:
+66 passing
 
-- Intent classification
-- Human handoff
-- Ambiguous cancellation protection
-- Tenant isolation
-- RLS validation
-- Idempotency
-- Queue creation
-- NL→SQL analytics
-- Cross-tenant blocking
+Frontend:
+
+8 Playwright E2E tests passing
+
+Coverage:
+
+- intent classification
+- workflow routing
+- queue processing
+- tenant isolation
+- RLS enforcement
+- idempotency
+- cross-tenant protection
 - SQL injection blocking
+- destructive SQL blocking
 - Hinglish RAG
-- Citation generation
-- Refusal behavior
-
+- citation generation
+- refusal behavior
+- frontend analytics flow
+- frontend RAG flow
+- frontend property switching
 Run:
 
 ```bash
-pytest -v
+python -m pytest -v (in backend folder)
+npx playwright test --header (in frontend folder)
 ```
 
 ---
@@ -624,6 +711,14 @@ Backend
 - FastAPI
 - PostgreSQL
 - psycopg2
+
+Frontend
+
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- Playwright
 
 Security
 
@@ -662,6 +757,11 @@ backend/
 ├── tests/
 └── kb/
 
+frontend/
+├── src/
+├── tests/
+└── playwright.config.ts
+
 seed/
 ├── schema.sql
 ├── data.sql
@@ -680,36 +780,38 @@ kb/
 
 ## Part A
 
-Completed
-
-- Property onboarding
-- Message orchestration
-- Workflow routing
-- Queue processing
-- Human handoff
-- Idempotency
-- Tenant isolation (RLS)
-- Lifecycle events
-- Tenant-scoped bookings
-
-Future enhancements:
-
-- LLM fallback classifier
-- OTA integration
-
----
+Complete
 
 ## Part B
 
-Completed
+Complete
 
-- Tenant-safe NL→SQL
-- Hinglish-aware RAG
-- Citation support
-- Refusal behavior
-- Cross-tenant protection
-- SQL safety enforcement
+## Part C
+
+Complete
+
+## Part D
+
+Complete
+
+### Implemented
+
+- Multi-tenant RLS isolation
+- Workflow orchestration
+- Queue processing
+- Human handoff
+- Idempotency
+- Tenant-safe analytics
+- Hinglish RAG
+- Citations
+- React Owner Console
+- Automated backend testing
+- Automated frontend E2E testing
+
+### Not Implemented
+
+- OTA integration
+- OTA retry/backoff
+- LLM fallback classifier
 
 ---
-
-This repository currently contains a fully functional backend implementing Parts A and B of the capstone specification with a strong focus on correctness, tenant isolation, safety, and reproducibility.
