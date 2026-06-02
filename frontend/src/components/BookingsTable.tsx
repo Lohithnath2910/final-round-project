@@ -59,7 +59,7 @@ export default function BookingsTable({
 
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [, setError] = useState("");
 
   async function loadBookings(initial = false) {
   if (!propertyId) return;
