@@ -11,6 +11,9 @@ import time
 from app.db import get_conn
 import json
 
+import requests
+import uuid
+
 PROCESS_SLEEP = 1.0
 
 
@@ -31,13 +34,17 @@ def claim_one_job(conn):
             SET status = 'in_progress'
             FROM cte
             WHERE w.job_id = cte.job_id
-            RETURNING w.job_id, w.payload
+            RETURNING
+                w.job_id,
+                w.property_id,
+                w.job_type,
+                w.payload
             """
         )
         row = cur.fetchone()
         if row:
             conn.commit()
-            return row[0], row[1]
+            return row[0], row[1], row[2], row[3]
         conn.commit()
         return None
     finally:
@@ -99,6 +106,35 @@ def process_payload(payload):
     time.sleep(PROCESS_SLEEP)
 
 
+def push_availability_to_ota(property_id):
+
+    push_id = str(uuid.uuid4())
+
+    for attempt in range(5):
+
+        try:
+
+            response = requests.post(
+                "http://localhost:9000/availability",
+                json={
+                    "push_id": push_id,
+                    "property_id": property_id
+                },
+                timeout=5
+            )
+
+            if response.status_code == 200:
+                return True
+
+            if response.status_code in [429, 500]:
+                time.sleep(2 ** attempt)
+                continue
+
+        except Exception:
+            time.sleep(2 ** attempt)
+
+    return False
+
 def main_loop():
     print('worker started')
     conn = get_conn()
@@ -109,9 +145,21 @@ def main_loop():
                 time.sleep(0.5)
                 continue
 
-            job_id, payload = claimed
+            job_id, property_id, job_type, payload = claimed
             try:
                 process_payload(payload)
+
+                if job_type == "booking":
+
+                    success = push_availability_to_ota(
+                        property_id
+                    )
+
+                    print(
+                        "OTA PUSH:",
+                        success
+                    )
+
                 mark_done(conn, job_id)
             except Exception as e:
                 cur = conn.cursor()
