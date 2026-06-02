@@ -436,6 +436,7 @@ def events(property_id: str):
             FROM events
             WHERE property_id = %s
             ORDER BY created_at DESC
+            LIMIT 20
             """,
             (property_id,)
         )
