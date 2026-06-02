@@ -11,6 +11,7 @@ import time
 import json
 from typing import Any
 from app.db import get_conn
+import requests
 
 from app.assistant import (
     is_data_question,
@@ -222,6 +223,93 @@ def classify(text: str, cfg: dict = None):
     return ("faq", 0.30)
 
 
+def ollama_classify(text):
+    prompt = f"""
+    You are a hotel receptionist intent classifier.
+
+    Allowed intents:
+
+    booking
+    cancellation
+    faq
+    complaint
+    wakeup
+
+    IMPORTANT:
+
+    If the guest is only considering something,
+    thinking about it,
+    asking hypothetically,
+    or is not making a definite request,
+
+    return LOW confidence.
+
+    Examples:
+
+    Message:
+    maybe i will cancel tomorrow
+
+    Output:
+    {{"intent":"cancellation","confidence":0.30}}
+
+    Message:
+    can i cancel later
+
+    Output:
+    {{"intent":"cancellation","confidence":0.40}}
+
+    Message:
+    cancel my booking now
+
+    Output:
+    {{"intent":"cancellation","confidence":0.95}}
+
+    Message:
+    book a room for tomorrow
+
+    Output:
+    {{"intent":"booking","confidence":0.95}}
+
+    Return ONLY valid JSON.
+
+    Message:
+    {text}
+    """
+
+    try:
+        response = requests.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "qwen2.5-coder:7b",
+                    "prompt": prompt,
+                    "stream": False
+                },
+                timeout=20
+            )
+        print(response.json())
+        raw = response.json()["response"].strip()
+
+        print("OLLAMA RAW:", repr(raw))
+        raw = raw.replace("```json", "")
+        raw = raw.replace("```", "")
+        raw = raw.strip()
+        data = json.loads(raw)
+
+        return (
+                data["intent"],
+                float(data["confidence"])
+            )
+
+    except Exception as e:
+
+            print("OLLAMA ERROR:", e)
+
+            return (
+                "faq",
+                0.0
+            )
+
+
 @app.post("/message")
 def handle_message(m: Message):
 
@@ -280,36 +368,55 @@ def handle_message(m: Message):
 
         if confidence < CONFIDENCE_THRESHOLD:
 
-            cur.execute(
-                """
-                INSERT INTO events(
-                    event_id,
-                    property_id,
-                    event_type,
-                    payload
-                )
-                VALUES(%s,%s,%s,%s)
-                """,
-                (
-                    str(uuid.uuid4()),
-                    m.property_id,
-                    "needs_human",
-                    json.dumps({
-                        "message_id": m.message_id,
-                        "text": m.text,
-                        "latency_ms": latency_ms
-                    })
-                )
+            llm_intent, llm_confidence = ollama_classify(
+                m.text
             )
 
-            conn.commit()
+            print(
+                "LLM FALLBACK:",
+                llm_intent,
+                llm_confidence
+            )
 
-            return {
-                "message_id": m.message_id,
-                "intent": intent,
-                "status": "needs_human",
-                "latency_ms": latency_ms
-            }
+            if llm_confidence >= 0.75:
+
+                intent = llm_intent
+                confidence = llm_confidence
+
+            else:
+
+                cur.execute(
+                    """
+                    INSERT INTO events(
+                        event_id,
+                        property_id,
+                        event_type,
+                        payload
+                    )
+                    VALUES(%s,%s,%s,%s)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        m.property_id,
+                        "needs_human",
+                        json.dumps({
+                            "message_id": m.message_id,
+                            "text": m.text,
+                            "latency_ms": latency_ms,
+                            "llm_confidence": llm_confidence
+                        })
+                    )
+                )
+
+                conn.commit()
+
+                return {
+                    "message_id": m.message_id,
+                    "intent": llm_intent,
+                    "status": "needs_human",
+                    "latency_ms": latency_ms,
+                    "llm_confidence": llm_confidence
+                }
 
         # --------------------
         # CANCELLATION GUARD

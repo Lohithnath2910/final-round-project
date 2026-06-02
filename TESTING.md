@@ -206,14 +206,15 @@ prevents fabricated answers.
 
 ## What Would Be Added With More Time
 
-* OTA integration tests
-* OTA retry/backoff testing
+* Expanded OTA failure simulation coverage
+* OTA load/reliability testing
+* Additional LLM fallback edge-case testing
 * Concurrent worker stress testing
 * Load testing
 * Browser compatibility matrix
 * Mobile device matrix testing
-* LLM fallback classifier testing
-
+* Better UI
+* More Stricter Testing
 ---
 
 ## QA Strategy For 100 Hotels

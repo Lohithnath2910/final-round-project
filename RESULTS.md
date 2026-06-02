@@ -157,9 +157,3 @@ Allowed:
 * revenue kitna tha
 
 ---
-
-## Not Implemented
-
-* OTA integration
-* OTA retry/backoff
-* LLM fallback classifier

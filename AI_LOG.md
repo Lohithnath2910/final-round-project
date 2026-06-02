@@ -264,10 +264,3 @@ workflow_jobs + worker.py satisfied project requirements with lower operational 
 
 ---
 
-## Features Not Implemented
-
-* OTA push integration
-* OTA retry/backoff
-* LLM fallback classifier
-
-These were considered lower priority than correctness, tenant isolation, testing coverage, and deployment completeness.

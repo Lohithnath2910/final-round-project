@@ -137,6 +137,7 @@ Message
 Current implementation uses:
 
 - deterministic rule-based classification
+- LLM (Ollama rn) fallback for low-confidence messages
 - confidence scoring
 - human handoff for uncertain requests
 - cancellation confirmation protection
@@ -270,6 +271,12 @@ Examples:
 - complaint_received
 - wakeup_requested
 - needs_human
+- booking_completed
+- cancellation_completed
+- complaint_completed
+- wakeup_completed
+- ota_push_success
+- ota_push_failed
 
 ---
 
@@ -808,11 +815,7 @@ Complete
 - React Owner Console
 - Automated backend testing
 - Automated frontend E2E testing
-
-### Not Implemented
-
 - OTA integration
 - OTA retry/backoff
 - LLM fallback classifier
-
 ---
