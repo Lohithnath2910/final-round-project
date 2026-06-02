@@ -668,7 +668,7 @@ Classification Benchmark
 
 # Testing
 
-74 / 74 tests passing
+74 tests passing (66 backend + 8 Playwright E2E)
 
 Backend:
 
@@ -738,8 +738,9 @@ Testing
 
 Deployment
 
-- Render
-- Supabase PostgreSQL
+- Backend: Render
+- Frontend: Vercel
+- Database: Supabase PostgreSQL
 
 ---
 

@@ -16,11 +16,19 @@ cd frontend
 npm run test:e2e
 ```
 
-Current Results:
+## Test Results
 
-* 66 backend tests passing
-* 8 Playwright tests passing
+- Backend:
+66 passing
 
+- Frontend:
+8 passing
+
+- Total:
+74 passing
+
+- Pass Rate:
+100%
 ---
 
 ## Testing Philosophy

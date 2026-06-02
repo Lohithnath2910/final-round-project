@@ -3,13 +3,15 @@
 ## Live Deployments
 
 Backend:
-
+- Render
 https://final-round-project.onrender.com/
 
 Frontend:
-
+- Vercel
 https://final-round-project.vercel.app/
 
+Database:
+- Supabase PostgreSQL
 ---
 
 ## Completion Summary
